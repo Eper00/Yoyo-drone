@@ -1,0 +1,100 @@
+import casadi as ca
+import numpy as np
+import matplotlib.pyplot as plt
+from stepper_functions import *
+
+
+# --- Állapotok és bemenet ---
+theta = ca.MX.sym("theta")          # szög
+theta_dot = ca.MX.sym("theta_dot")  # szögsebesség
+h = ca.MX.sym("h")                  # magasság
+h_dot = ca.MX.sym("h_dot")          # magasságsebesség
+h_ddot = ca.MX.sym("h_ddot")                  # döntési változók: u_k
+
+state = ca.vertcat(theta, theta_dot, h, h_dot)
+L=h_ddot**2
+
+state_next, L_step = rk4_step(state, h_ddot)
+F = ca.Function("F", [state, h_ddot], [state_next, L_step], ['state','u'], ['state_next','L_step'])
+g = ca.Function("g", [state[0],state[2]], [yoyo_height(state[0],state[2])])
+w=[]
+w0 = []
+lbw = []
+ubw = []
+J = 0
+g=[]
+lbg = []
+ubg = []
+# "Lift" initial conditions
+state_k = ca.MX.sym('X0', 4)
+w += [state_k]
+
+lbw += [x0_val[0], x0_val[1],x0_val[2],x0_val[3]]
+ubw += [x0_val[0], x0_val[1],x0_val[2],x0_val[3]]
+w0 += [x0_val[0], x0_val[1],x0_val[2],x0_val[3]]
+
+# Formulate the NLP
+for k in range(N):
+    # New NLP variable for the control
+    h_ddot_k = ca.MX.sym('h_ddot_' + str(k))
+    w   += [h_ddot_k]
+    lbw += [U_min]
+    ubw += [U_max]
+    w0  += [0]
+
+    # Integrate till the end of the interval
+    Fk = F(state_k, h_ddot_k)
+    state_k_end = Fk[0]
+    J=J+Fk[1]
+    # New NLP variable for state at end of interval
+    state_k = ca.MX.sym('state_' + str(k+1), 4)
+    w   += [state_k]
+    lbw += [0, -1*ca.inf,0.6,-1*ca.inf]
+    ubw += [105,ca.inf,2,ca.inf]
+    w0  += [0, 0,0,0]
+    # Add equality constraint
+    g   += [state_k_end-state_k]
+    lbg += [0, 0,0,0]
+    ubg += [0, 0,0,0]
+
+
+    # Create an NLP solver
+prob = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
+solver = ca.nlpsol('solver', 'ipopt', prob)
+
+# Solve the NLP
+sol = solver(x0=w0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
+w_opt = sol['x'].full().flatten()
+
+# Plot the solution
+theta_opt = w_opt[0::5]
+theta_dot_opt = w_opt[1::5]
+h_opt = w_opt[2::5]
+h_dot_opt = w_opt[3::5]
+h_ddot_opt = w_opt[4::5]
+tgrid = [T/N*k for k in range(N+1)]
+
+
+import matplotlib.pyplot as plt
+
+plt.figure(1)
+plt.clf()
+plt.plot(tgrid, theta_opt, '--')
+
+plt.grid()
+plt.show()
+plt.figure(1)
+plt.clf()
+plt.plot(tgrid, h_opt, '--')
+plt.plot(tgrid, yoyo_height(theta_opt,h_opt), '--')
+
+plt.grid()
+plt.show()
+tgrid = [T/N*k for k in range(N)]
+plt.figure(1)
+plt.clf()
+plt.plot(tgrid, h_ddot_opt, '--')
+
+
+plt.grid()
+plt.show()
