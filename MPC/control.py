@@ -56,6 +56,30 @@ for k in range(N):
     g   += [state_k_end-state_k]
     lbg += [0, 0,0,0]
     ubg += [0, 0,0,0]
+    # Add midpoint constraint
+    '''
+    if k == N//2 - 1:   # T/2 időpillanat
+        g   += [state_k_end[0] - theta_ref]  # theta(T/2) = theta_ref
+        lbg += [0]
+        ubg += [0]
+    '''
+    # Add final constraint
+    
+    if k == N - 1:
+        
+        g   += [state_k_end[0] - 0]  # theta_dot(T) = theta_dot_ref
+        lbg += [0]
+        ubg += [0]
+        g   += [state_k_end[1] - theta_dot_ref]  # theta_dot(T) = theta_dot_ref
+        lbg += [0]
+        ubg += [0]
+        g   += [state_k_end[2] - 1]             # h(T) = 1
+        lbg += [0]
+        ubg += [0]
+                
+
+
+
 
 
     # Create an NLP solver
@@ -80,7 +104,7 @@ import matplotlib.pyplot as plt
 plt.figure(1)
 plt.clf()
 plt.plot(tgrid, theta_opt, '--')
-
+plt.plot(tgrid, theta_dot_opt, '--')
 plt.grid()
 plt.show()
 plt.figure(1)
