@@ -2,7 +2,7 @@ import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
 from stepper_functions import *
-
+import csv
 
 # --- Állapotok és bemenet ---
 theta = ca.MX.sym("theta")          # szög
@@ -14,7 +14,7 @@ h_ddot = ca.MX.sym("h_ddot")                  # döntési változók: u_k
 state = ca.vertcat(theta, theta_dot, h, h_dot)
 L=h_ddot**2
 
-state_next, L_step = rk4_step(state, h_ddot)
+state_next, L_step = multiple_rk4_steps(state, h_ddot)
 F = ca.Function("F", [state, h_ddot], [state_next, L_step], ['state','u'], ['state_next','L_step'])
 g = ca.Function("g", [state[0],state[2]], [yoyo_height(state[0],state[2])])
 w=[]
@@ -34,7 +34,7 @@ ubw += [x0_val[0], x0_val[1],x0_val[2],x0_val[3]]
 w0 += [x0_val[0], x0_val[1],x0_val[2],x0_val[3]]
 
 # Formulate the NLP
-for k in range(N):
+for k in range(int(N/M)):
     # New NLP variable for the control
     h_ddot_k = ca.MX.sym('h_ddot_' + str(k))
     w   += [h_ddot_k]
@@ -65,7 +65,7 @@ for k in range(N):
     '''
     # Add final constraint
     
-    if k == N - 1:
+    if k == int(N/M) - 1:
         
         g   += [state_k_end[0] - 0]  # theta_dot(T) = theta_dot_ref
         lbg += [0]
@@ -96,7 +96,7 @@ theta_dot_opt = w_opt[1::5]
 h_opt = w_opt[2::5]
 h_dot_opt = w_opt[3::5]
 h_ddot_opt = w_opt[4::5]
-tgrid = [T/N*k for k in range(N+1)]
+tgrid = [M*T/N*k for k in range(int(N/M)+1)]
 
 
 import matplotlib.pyplot as plt
@@ -114,7 +114,7 @@ plt.plot(tgrid, yoyo_height(theta_opt,h_opt), '--')
 
 plt.grid()
 plt.show()
-tgrid = [T/N*k for k in range(N)]
+tgrid = [M*T/N*k for k in range(int(N/M))]
 plt.figure(1)
 plt.clf()
 plt.plot(tgrid, h_ddot_opt, '--')
@@ -122,3 +122,21 @@ plt.plot(tgrid, h_ddot_opt, '--')
 
 plt.grid()
 plt.show()
+csvdata=[]
+head=["h_ddot_opt"]
+csvdata.append(h_ddot_opt)
+
+        
+with open('MPC_input.csv', 'w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(head)
+
+        
+with open('MPC_input.csv', 'a', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerows(csvdata)
+    csvdata=[]
+
+    
+
+    

@@ -4,14 +4,13 @@ Module that contains bumblebees with yoyos attached.
 
 from typing import Optional
 from xml.etree import ElementTree as ET
-
 import mujoco
 import numpy as np
 import csv
-
+import pandas as pd
 from aiml_virtual.simulated_object.dynamic_object.controlled_object.drone import bumblebee
 
-class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
+class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     """
     Class that extends the Bumblebee to have a 1-DOF yoyo on it.
     """
@@ -23,7 +22,7 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
     beta = 0.85
 
     theta = 0
-    theta_dot = 105
+    theta_dot = 100
     theta_ddot = 0
     d = 0
     r = 0
@@ -36,18 +35,21 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
     z_ddot = 0
     T_imp = 0
 
-    K = 4.5
-    c_d = 1.5
-    c_p = 1.
-    d_set = L - 0.1
-    dt = 0.002
+  
+    dt = 0.001
     h = 1
     h_dot = 0
     h_ddot = 0
-
+    k=0
     index=0
     csvdata=[]
+    with open("MPC_input.csv", "r") as f:
+      lines = f.readlines()
 
+    # fejléc átugrása
+    data_line = lines[1].strip()
+    # csak az oszlopot választod ki, majd numpy array és reshape
+    inputs = np.array([float(x) for x in data_line.split(",")]).reshape(1, -1)
     @classmethod
     def get_identifiers(cls) -> Optional[list[str]]:
         return ["YoyoBumblebee1DOF_PD"]
@@ -94,33 +96,25 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
         spinning, and runs the controller.
         """
         self.spin_propellers()
-
         cur_pos = self.state['pos']
         cur_vel = self.state['vel']
         cur_acc = self.state['acc']
-
-
-        self.r_theta = YoyoBumblebee1DOF_PD.r_0 + (self.theta * YoyoBumblebee1DOF_PD.alpha)
-
-        if self.d_set <= self.d and self.theta_dot < 0:
-            self.h_ddot = self.K 
-        else:
-            self.h_ddot = - (self.c_d * cur_vel[2]) - (self.c_p * (cur_pos[2] - 1))
-
-        # Update hand control
+        self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
+        self.h_ddot=self.inputs[0,self.k]
+        self.k=self.k+1
         self.h += self.h_dot * self.dt
         self.h_dot += self.h_ddot * self.dt
-
+        
         # Yoyo dynamics
         if self.theta <= 0 and self.theta_dot < 0:
-            self.T_imp = round((2 * 3.14)/(abs(self.theta_dot) * (1 + YoyoBumblebee1DOF_PD.beta)) / self.dt,0)
-            self.theta_dot = - YoyoBumblebee1DOF_PD.beta * self.theta_dot
-            self.yoyo_z = cur_pos[2] - 2.2 - YoyoBumblebee1DOF_PD.L
-            self.T = YoyoBumblebee1DOF_PD.m_yoyo * ((((1 + YoyoBumblebee1DOF_PD.beta) * abs(self.theta_dot) * YoyoBumblebee1DOF_PD.r_0) / (self.dt * self.T_imp)) + cur_acc[2] - 9.81)
+            self.T_imp = round((2 * 3.14)/(abs(self.theta_dot) * (1 + YoyoBumblebee1DOF_MPC.beta)) / self.dt,0)
+            self.theta_dot = - YoyoBumblebee1DOF_MPC.beta * self.theta_dot
+            self.yoyo_z = cur_pos[2] - 2.2 - YoyoBumblebee1DOF_MPC.L
+            self.T = YoyoBumblebee1DOF_MPC.m_yoyo * ((((1 + YoyoBumblebee1DOF_MPC.beta) * abs(self.theta_dot) * YoyoBumblebee1DOF_MPC.r_0) / (self.dt * self.T_imp)) + cur_acc[2] - 9.81)
         else:
           
-            self.T = YoyoBumblebee1DOF_PD.m_yoyo * (cur_acc[2] + (YoyoBumblebee1DOF_PD.alpha * self.theta_dot * self.theta_dot) * (self.r_theta * self.theta_ddot))
-            self.theta_ddot = - (self.T * self.r_theta / YoyoBumblebee1DOF_PD.J_yoyo)
+            self.T = YoyoBumblebee1DOF_MPC.m_yoyo * (cur_acc[2] + (YoyoBumblebee1DOF_MPC.alpha * self.theta_dot * self.theta_dot) * (self.r_theta * self.theta_ddot))
+            self.theta_ddot = - (self.T * self.r_theta / YoyoBumblebee1DOF_MPC.J_yoyo)
             self.theta_dot += self.theta_ddot * self.dt
         
 
@@ -128,9 +122,9 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
         # Update Yoyo state
         self.theta += self.theta_dot * self.dt
 
-        self.z = cur_pos[2] - YoyoBumblebee1DOF_PD.L + (YoyoBumblebee1DOF_PD.r_0 * self.theta) + ((YoyoBumblebee1DOF_PD.alpha / 2) * (self.theta * self.theta))
+        self.z = cur_pos[2] - YoyoBumblebee1DOF_MPC.L + (YoyoBumblebee1DOF_MPC.r_0 * self.theta) + ((YoyoBumblebee1DOF_MPC.alpha / 2) * (self.theta * self.theta))
         self.z_dot = cur_vel[2] + (self.r_theta * self.theta_dot)
-        self.z_ddot = (cur_acc[2] - 9.81) + (YoyoBumblebee1DOF_PD.alpha * self.theta_dot * self.theta_dot) + (self.r_theta * self.theta_ddot)
+        self.z_ddot = (cur_acc[2] - 9.81) + (YoyoBumblebee1DOF_MPC.alpha * self.theta_dot * self.theta_dot) + (self.r_theta * self.theta_ddot)
 
         self.d = cur_pos[2] - self.z
 
@@ -161,7 +155,7 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
                 writer = csv.writer(file)
                 writer.writerow(head)
 
-        if self.index % 500 == 0 and self.index/500 <= 100 and self.index != 0:
+        if self.index % 500 == 0 and self.index/500 <= 2.55*2 and self.index != 0:
             with open('data_mujoco_30.csv', 'a', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerows(self.csvdata)

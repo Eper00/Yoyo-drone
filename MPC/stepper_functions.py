@@ -50,7 +50,7 @@ def multiple_rk4_steps(state, h_ddot):
     state_k = state
     Q = 0
     for _ in range(M):
-        state_k, L_step = rk4_step(state_k, h0_ddot)
+        state_k, L_step = rk4_step(state_k, h_ddot)
         Q = Q + L_step*dt  # integrált költség = ∫u^2 dt
     return state_k, Q
 yoyo_height = lambda theta, h: h - L + r0*theta + (alpha/2)*theta**2
