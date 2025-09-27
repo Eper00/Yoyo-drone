@@ -9,7 +9,7 @@ theta = ca.MX.sym("theta")          # szög
 theta_dot = ca.MX.sym("theta_dot")  # szögsebesség
 h = ca.MX.sym("h")                  # magasság
 h_dot = ca.MX.sym("h_dot")          # magasságsebesség
-h_ddot = ca.MX.sym("h_ddot")                  # döntési változók: u_k
+h_ddot = ca.MX.sym("h_ddot")        # döntési változók: u_k
 
 state = ca.vertcat(theta, theta_dot, h, h_dot)
 L=h_ddot**2
@@ -49,8 +49,8 @@ for k in range(int(N/M)):
     # New NLP variable for state at end of interval
     state_k = ca.MX.sym('state_' + str(k+1), 4)
     w   += [state_k]
-    lbw += [0, -1*ca.inf,0.6,-1*ca.inf]
-    ubw += [105,ca.inf,2,ca.inf]
+    lbw += [0, -1*ca.inf,h_min,-1*ca.inf]
+    ubw += [105,ca.inf,h_max,ca.inf]
     w0  += [0, 0,0,0]
     # Add equality constraint
     g   += [state_k_end-state_k]
@@ -76,6 +76,9 @@ for k in range(int(N/M)):
         g   += [state_k_end[2] - 1]             # h(T) = 1
         lbg += [0]
         ubg += [0]
+
+  
+  
                 
 
 
@@ -87,6 +90,7 @@ prob = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
 solver = ca.nlpsol('solver', 'ipopt', prob)
 
 # Solve the NLP
+# inicilaizéció
 sol = solver(x0=w0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
 w_opt = sol['x'].full().flatten()
 
@@ -114,28 +118,26 @@ plt.plot(tgrid, yoyo_height(theta_opt,h_opt), '--')
 
 plt.grid()
 plt.show()
-tgrid = [M*T/N*k for k in range(int(N/M))]
+tgrid = [M*T/N*k for k in range(int(N/M)+1)]
 plt.figure(1)
 plt.clf()
-plt.plot(tgrid, h_ddot_opt, '--')
+plt.plot(tgrid, h_dot_opt, '--')
+
 
 
 plt.grid()
 plt.show()
 csvdata=[]
-head=["h_ddot_opt"]
-csvdata.append(h_ddot_opt)
+head = ["h_opt", "h_dot_opt", "h_ddot_opt"]
 
-        
+csvdata = list(zip(h_opt, h_dot_opt, h_ddot_opt))
+
 with open('MPC_input.csv', 'w', newline='') as file:
     writer = csv.writer(file)
-    writer.writerow(head)
+    writer.writerow(head)      
+    writer.writerows(csvdata)  
 
-        
-with open('MPC_input.csv', 'a', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerows(csvdata)
-    csvdata=[]
+
 
     
 
