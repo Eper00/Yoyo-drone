@@ -35,7 +35,7 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
     z_dot = 0
     z_ddot = 0
     T_imp = 0
-
+    # Maradjon nullán
     K = 4.5
     c_d = 1.5
     c_p = 1.
@@ -101,7 +101,7 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
 
 
         self.r_theta = YoyoBumblebee1DOF_PD.r_0 + (self.theta * YoyoBumblebee1DOF_PD.alpha)
-
+        # Miért nem áll vissza 1-re (ha nem hogyan)
         if self.d_set <= self.d and self.theta_dot < 0:
             self.h_ddot = self.K 
         else:
@@ -146,6 +146,7 @@ class YoyoBumblebee1DOF_PD(bumblebee.Bumblebee):
         self.data.qpos[11] = - self.d
 
         self.ctrl_output = self.controller.compute_control(state=self.state, setpoint=setpoint)
+        self.ctrl_output[0]+=self.m_yoyo*9.81
         motor_thrusts = self.input_matrix @ self.ctrl_output
         thrustsum = 0
         for propeller, thrust in zip(self.propellers, motor_thrusts):

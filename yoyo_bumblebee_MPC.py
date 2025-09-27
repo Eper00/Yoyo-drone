@@ -43,13 +43,20 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     k=0
     index=0
     csvdata=[]
-    with open("MPC_input.csv", "r") as f:
-      lines = f.readlines()
 
-    # fejléc átugrása
-    data_line = lines[1].strip()
-    # csak az oszlopot választod ki, majd numpy array és reshape
-    inputs = np.array([float(x) for x in data_line.split(",")]).reshape(1, -1)
+    with open("MPC_input.csv", "r") as f:
+        lines = f.readlines()
+
+    # fejléc átugrása (az első sor kimarad)
+    data_lines = lines[1:]
+
+    # minden sor feldolgozása float-tá alakítva
+    data = [[float(x) for x in line.strip().split(",")] for line in data_lines]
+
+    # numpy array-é alakítás
+    inputs = np.array(data)
+
+
     @classmethod
     def get_identifiers(cls) -> Optional[list[str]]:
         return ["YoyoBumblebee1DOF_PD"]
@@ -100,11 +107,10 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         cur_vel = self.state['vel']
         cur_acc = self.state['acc']
         self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
-        self.h_ddot=self.inputs[0,self.k]
+        self.h=self.inputs[self.k%2500,0]
+        self.h_dot=self.inputs[self.k%2500,1]
+        self.h_ddot=self.inputs[self.k%2500,2]
         self.k=self.k+1
-        self.h += self.h_dot * self.dt
-        self.h_dot += self.h_ddot * self.dt
-        
         # Yoyo dynamics
         if self.theta <= 0 and self.theta_dot < 0:
             self.T_imp = round((2 * 3.14)/(abs(self.theta_dot) * (1 + YoyoBumblebee1DOF_MPC.beta)) / self.dt,0)
@@ -155,7 +161,7 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
                 writer = csv.writer(file)
                 writer.writerow(head)
 
-        if self.index % 500 == 0 and self.index/500 <= 2.55*2 and self.index != 0:
+        if self.index % 500 == 0 and self.index/500 <= 1000 and self.index != 0:
             with open('data_mujoco_30.csv', 'a', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerows(self.csvdata)
