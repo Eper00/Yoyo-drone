@@ -55,18 +55,62 @@ def multiple_rk4_steps(state, h_ddot,dt):
         state_k, L_step = rk4_step(state_k, h_ddot,dt)
         Q = Q + L_step*dt  # integrált költség = ∫u^2 dt
     return state_k, Q
+
+def simulate(state_init, T, dt):
+    states = []
+    state_k = state_init
+
+    # első elem: csak state_init (4 elem)
+    states.append(np.array(state_k).flatten())
+
+    # minden lépés: state_k + 0 + dt (6 elem)
+    
+    state_k, _ = rk4_step(state_k, 0, dt)
+    vec = ca.vertcat( 0, dt,state_k)
+    states.append(np.array(vec).flatten())
+
+    # végül egyetlen sorvektor
+    states_flat = np.concatenate(states)
+    return states_flat
+
 yoyo_height = lambda theta, h: h - L + r0*theta + (alpha/2)*theta**2
+def disassemble(opt):
+    theta_opt = opt[0::6]
+    theta_dot_opt = opt[1::6]
+    h_opt = opt[2::6]
+    h_dot_opt = opt[3::6]
+    h_ddot_opt = opt[4::6]
+    dt_opt = opt[5::6]
+    return [theta_opt,theta_dot_opt,h_opt,h_dot_opt,h_ddot_opt,dt_opt]
+def simualtion_verdict(state_init, T, dt_1,dt_2):
+
+    states_1=simulate(state_init,T,dt_1)
+    states_2=simulate(state_init,T,dt_2)
+    [theta_opt_1,theta_dot_opt_1,h_opt_1,h_dot_opt_1,h_ddot_opt_1,dt_opt_1]=disassemble(states_1)
+    [theta_opt_2,theta_dot_opt_2,h_opt_2,h_dot_opt_2,h_ddot_opt_2,dt_opt_2]=disassemble(states_2)
+    tgrid_1 = [0.0]
+    for k in range(len(dt_opt_1)):
+        tgrid_1.append(tgrid_1[-1] + dt_opt_1[k])
+    tgrid_2 = [0.0]
+    for k in range(len(dt_opt_2)):
+        tgrid_2.append(tgrid_2[-1] + dt_opt_2[k])
+    plt.figure()
+    plt.plot(tgrid_1, theta_opt_1, '-', label="theta with dt_1={}".format(dt_1))
+    plt.plot(tgrid_2, theta_opt_2, '-', label="theta with dt_2={}".format(dt_2))
+
+    plt.grid()
+    plt.legend()
+    plt.show()
+
+
+
+
 def visualize_results(w_opt):
-    theta_opt = w_opt[0::6]
-    theta_dot_opt = w_opt[1::6]
-    h_opt = w_opt[2::6]
-    h_dot_opt = w_opt[3::6]
-    h_ddot_opt = w_opt[4::6]
-    dt_opt = w_opt[5::6]
-    tgrid = [0]
+    [theta_opt,theta_dot_opt,h_opt,h_dot_opt,h_ddot_opt,dt_opt]=disassemble(w_opt)
+
+    tgrid = [0.0]
     for k in range(len(dt_opt)):
         tgrid.append(tgrid[-1] + dt_opt[k])
-
     plt.figure()
     plt.plot(tgrid, theta_opt, '--', label="theta")
     plt.plot(tgrid, theta_dot_opt, '--', label="theta_dot")
@@ -89,7 +133,6 @@ def visualize_results(w_opt):
     plt.legend()
     plt.show()
 
-    # vezérlő jel h_ddot (N pont, ezért tgrid[:-1])
     plt.figure()
     plt.step(tgrid[:-1], h_ddot_opt, where="post", label="h_ddot")
     plt.grid()

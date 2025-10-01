@@ -70,17 +70,18 @@ def controller(x0_val,x0_init,theta_dot_ref,N,M):
     
         
         if k == int(N/M) - 1:
-            
-            g   += [state_k_end[0] - 0]  # theta_dot(T) = theta_dot_ref
-            lbg += [0]
-            ubg += [0]
-            g   += [state_k_end[1] - theta_dot_ref]  # theta_dot(T) = theta_dot_ref
+          
+            g   += [state_k_end[0] - 0]
             lbg += [0]
             ubg += [0]
             g   += [state_k_end[2] - 1]             # h(T) = 1
             lbg += [0]
             ubg += [0]
 
+            g   += [state_k_end[1] - theta_dot_ref]  # theta_dot(T) = theta_dot_ref
+            lbg += [0]
+            ubg += [0]
+            
 
 
     

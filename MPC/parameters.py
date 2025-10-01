@@ -10,14 +10,14 @@ dt_max=0.05
 dt_min=0.0001
 #mint dt változó (periódis idő)
 N = 100
-M = 1
+M = 2
 # Alsó és felső határ
 # Állítsuk át (12 sok)
 U_min = -7
 U_max = 7
 #
-h_min=0.65
-h_max=2
+h_min=0.67
+h_max=1.8
 x0_val = np.array([0, 100, 1, 0])
 x0_init = np.zeros([int(N/M),6]).flatten()  
 x0_init = np.concatenate([x0_init, x0_val.flatten()])
