@@ -9,7 +9,7 @@ import numpy as np
 import csv
 import pandas as pd
 from aiml_virtual.simulated_object.dynamic_object.controlled_object.drone import bumblebee
-
+from scripts.my_code.MPC import control, parameters
 class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     """
     Class that extends the Bumblebee to have a 1-DOF yoyo on it.
@@ -43,6 +43,7 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     k=0
     index=0
     csvdata=[]
+    time=0
 
     with open("MPC_input.csv", "r") as f:
         lines = f.readlines()
@@ -102,16 +103,59 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         Overrides drone.update. Updates the position of the propellers to make it look like they are
         spinning, and runs the controller.
         """
+        if(self.theta==0):
+            x0_val=[self.theta,self.theta_dot,self.h,self.h_dot]
+            control.controller(x0_val,parameters.x0_init,parameters.theta_dot_ref,parameters.N,parameters.M)
         self.spin_propellers()
+        self.time=self.time+self.dt
+       
+        self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
+       
+        self.update_yoyo_state()       
+
+        setpoint = {"load_mass": 0.0, # [m] - assume no load mass (rope tension will account for yoyo)
+                  "target_pos": np.array([0, 0, self.h]), # [m] - desired hand position
+                  "target_vel": np.array([0, 0, self.h_dot]), # [m/s] - desired hand velocity
+                  "target_acc": np.array([0, 0, self.h_ddot]), # [m/s^2] - desired hand acceleration
+                  "target_rpy": np.zeros(3), # [rad] - (roll, pitch, yaw) not needed
+                  "target_ang_vel": np.zeros(3)} # [rad/s] - (roll, pitch, yaw) not needed
+
+        self.data.qfrc_applied[2] = -self.T # [N] - update forces every cycle [12 dimensions]
+
+        self.data.qpos[11] = - self.d
+
+        self.ctrl_output = self.controller.compute_control(state=self.state, setpoint=setpoint)
+        motor_thrusts = self.input_matrix @ self.ctrl_output
+        thrustsum = 0
+        for propeller, thrust in zip(self.propellers, motor_thrusts):
+            propeller.ctrl[0] = thrust
+            thrustsum += thrust
+        self.save_drone_state_to_csv(thrustsum)
+       
+    def save_drone_state_to_csv(self,thrustsum):
         cur_pos = self.state['pos']
         cur_vel = self.state['vel']
         cur_acc = self.state['acc']
-        self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
-        self.h=self.inputs[self.k%2500,0]
-        self.h_dot=self.inputs[self.k%2500,1]
-        self.h_ddot=self.inputs[self.k%2500,2]
-        self.k=self.k+1
-        # Yoyo dynamics
+        head=["Theta", "Theta_dot", "Theta_ddot", "h", "h_dot", "h_ddot", "pos", "vel", "acc", "tension", "d", "f", "z", "z_dot", "z_ddot"]
+        self.csvdata.append([self.theta, self.theta_dot, self.theta_ddot, self.h, self.h_dot, self.h_ddot, cur_pos[2], cur_vel[2], cur_acc[2]-9.81, self.T, self.d, thrustsum, self.z, self.z_dot, self.z_ddot])
+
+        if self.index == 0:
+            with open('drone_state.csv', 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(head)
+
+        if self.index % 500 == 0 and self.index != 0:
+            with open('drone_state.csv', 'a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerows(self.csvdata)
+                self.csvdata=[]
+
+        self.index+=1
+    def update_yoyo_state(self):
+         # Yoyo dynamics
+        cur_pos = self.state['pos']
+        cur_vel = self.state['vel']
+        cur_acc = self.state['acc']
         if self.theta <= 0 and self.theta_dot < 0:
             self.T_imp = round((2 * 3.14)/(abs(self.theta_dot) * (1 + YoyoBumblebee1DOF_MPC.beta)) / self.dt,0)
             self.theta_dot = - YoyoBumblebee1DOF_MPC.beta * self.theta_dot
@@ -133,38 +177,3 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         self.z_ddot = (cur_acc[2] - 9.81) + (YoyoBumblebee1DOF_MPC.alpha * self.theta_dot * self.theta_dot) + (self.r_theta * self.theta_ddot)
 
         self.d = cur_pos[2] - self.z
-
-        setpoint = {"load_mass": 0.0, # [m] - assume no load mass (rope tension will account for yoyo)
-                  "target_pos": np.array([0, 0, self.h]), # [m] - desired hand position
-                  "target_vel": np.array([0, 0, self.h_dot]), # [m/s] - desired hand velocity
-                  "target_acc": np.array([0, 0, self.h_ddot]), # [m/s^2] - desired hand acceleration
-                  "target_rpy": np.zeros(3), # [rad] - (roll, pitch, yaw) not needed
-                  "target_ang_vel": np.zeros(3)} # [rad/s] - (roll, pitch, yaw) not needed
-
-        self.data.qfrc_applied[2] = -self.T # [N] - update forces every cycle [12 dimensions]
-
-        self.data.qpos[11] = - self.d
-
-        self.ctrl_output = self.controller.compute_control(state=self.state, setpoint=setpoint)
-        motor_thrusts = self.input_matrix @ self.ctrl_output
-        thrustsum = 0
-        for propeller, thrust in zip(self.propellers, motor_thrusts):
-            propeller.ctrl[0] = thrust
-            thrustsum += thrust
-        
-        
-        head=["Theta", "Theta_dot", "Theta_ddot", "h", "h_dot", "h_ddot", "pos", "vel", "acc", "tension", "d", "f", "z", "z_dot", "z_ddot"]
-        self.csvdata.append([self.theta, self.theta_dot, self.theta_ddot, self.h, self.h_dot, self.h_ddot, cur_pos[2], cur_vel[2], cur_acc[2]-9.81, self.T, self.d, thrustsum, self.z, self.z_dot, self.z_ddot])
-
-        if self.index == 0:
-            with open('data_mujoco_30.csv', 'w', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow(head)
-
-        if self.index % 500 == 0 and self.index/500 <= 1000 and self.index != 0:
-            with open('data_mujoco_30.csv', 'a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerows(self.csvdata)
-                self.csvdata=[]
-
-        self.index+=1
