@@ -1,4 +1,4 @@
-from parameters import *
+from .parameters import *
 import csv
 
 # --- Dinamika: RK4 integrátor ---

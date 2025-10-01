@@ -7,10 +7,10 @@ L,m, r0, J, alpha, g, beta =0.6, 0.045, 0.005, 0.00003, 0.0000165, 9.81, 0.85
 
 
 dt_max=0.05
-dt_min=0.0001
+dt_min=0.001
 #mint dt változó (periódis idő)
 N = 100
-M = 2
+M = 1
 # Alsó és felső határ
 # Állítsuk át (12 sok)
 U_min = -7

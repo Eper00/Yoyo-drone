@@ -9,7 +9,7 @@ import numpy as np
 import csv
 import pandas as pd
 from aiml_virtual.simulated_object.dynamic_object.controlled_object.drone import bumblebee
-from scripts.my_code.MPC import control, parameters
+from scripts.my_code.MPC import control, parameters,support
 class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     """
     Class that extends the Bumblebee to have a 1-DOF yoyo on it.
@@ -34,30 +34,22 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     z_dot = 0
     z_ddot = 0
     T_imp = 0
-
+    h_opt=[]
+    h_dot_opt=[]
+    h_ddot_opt=[]
+    dt_opt=[]
   
     dt = 0.001
     h = 1
     h_dot = 0
     h_ddot = 0
     k=0
-    index=0
+    index_write=0
     csvdata=[]
     time=0
-
-    with open("MPC_input.csv", "r") as f:
-        lines = f.readlines()
-
-    # fejléc átugrása (az első sor kimarad)
-    data_lines = lines[1:]
-
-    # minden sor feldolgozása float-tá alakítva
-    data = [[float(x) for x in line.strip().split(",")] for line in data_lines]
-
-    # numpy array-é alakítás
-    inputs = np.array(data)
-
-
+    time_threshold=0
+    index_control=0
+    switch=1
     @classmethod
     def get_identifiers(cls) -> Optional[list[str]]:
         return ["YoyoBumblebee1DOF_PD"]
@@ -99,20 +91,33 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         self.sensors["yoyo_ang_vel"] = self.data.sensor(f"{self.name}_yoyo_ang_vel")
 
     def update(self) -> None:
-        """
-        Overrides drone.update. Updates the position of the propellers to make it look like they are
-        spinning, and runs the controller.
-        """
-        if(self.theta==0):
-            x0_val=[self.theta,self.theta_dot,self.h,self.h_dot]
-            control.controller(x0_val,parameters.x0_init,parameters.theta_dot_ref,parameters.N,parameters.M)
-        self.spin_propellers()
-        self.time=self.time+self.dt
-       
-        self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
-       
-        self.update_yoyo_state()       
+        
 
+        if(self.switch==1 and self.theta_dot>0):
+            x0_val=[self.theta,self.theta_dot,self.h,self.h_dot]
+            self.index_control=0
+            self.time=0
+            w_opt=control.controller(x0_val,parameters.x0_init,parameters.theta_dot_ref,parameters.N,parameters.M)
+            [_,_,self.h_opt,self.h_dot_opt,self.h_ddot_opt,self.dt_opt]=support.disassemble(w_opt)
+            parameters.x0_init=w_opt
+            self.time_threshold=self.dt_opt[0]
+        self.spin_propellers()
+        if self.time>self.time_threshold:
+            self.index_control=self.index_control+1
+            self.time_threshold=self.time_threshold+self.dt_opt[self.index_control-1]
+        self.time=self.time+self.dt
+
+        self.h=self.h_opt[self.index_control]
+        self.h_dot=self.h_dot_opt[self.index_control]
+        self.h_ddot=self.h_ddot_opt[self.index_control]
+        self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
+        #self.theta_past=self.theta
+        if (self.theta<0):
+            self.switch=1
+        else:
+            self.switch=0
+        self.update_yoyo_state()       
+        
         setpoint = {"load_mass": 0.0, # [m] - assume no load mass (rope tension will account for yoyo)
                   "target_pos": np.array([0, 0, self.h]), # [m] - desired hand position
                   "target_vel": np.array([0, 0, self.h_dot]), # [m/s] - desired hand velocity
@@ -139,18 +144,18 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         head=["Theta", "Theta_dot", "Theta_ddot", "h", "h_dot", "h_ddot", "pos", "vel", "acc", "tension", "d", "f", "z", "z_dot", "z_ddot"]
         self.csvdata.append([self.theta, self.theta_dot, self.theta_ddot, self.h, self.h_dot, self.h_ddot, cur_pos[2], cur_vel[2], cur_acc[2]-9.81, self.T, self.d, thrustsum, self.z, self.z_dot, self.z_ddot])
 
-        if self.index == 0:
+        if self.index_write == 0:
             with open('drone_state.csv', 'w', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(head)
 
-        if self.index % 500 == 0 and self.index != 0:
+        if self.index_write % 500 == 0 and self.index_write != 0:
             with open('drone_state.csv', 'a', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerows(self.csvdata)
                 self.csvdata=[]
 
-        self.index+=1
+        self.index_write+=1
     def update_yoyo_state(self):
          # Yoyo dynamics
         cur_pos = self.state['pos']

@@ -1,6 +1,6 @@
 import casadi as ca
 import numpy as np
-from support import *
+from .support import *
 def controller(x0_val,x0_init,theta_dot_ref,N,M):
     # --- Állapotok és bemenet ---
     theta = ca.MX.sym("theta")          # szög
