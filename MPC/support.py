@@ -1,6 +1,6 @@
 from .parameters import *
 import csv
-
+from scipy.interpolate import interp1d
 # --- Dinamika: RK4 integrátor ---
 def rk4_step(state, u,dt):
     theta     = state[0]
@@ -43,6 +43,7 @@ def rk4_step(state, u,dt):
     # Magasság update
     h_next = h + (1/6)*(k1_h + 2*k2_h + 2*k3_h + k4_h)
     h_dot_next = h_dot + (1/6)*(k1_hdot + 2*k2_hdot + 2*k3_hdot + k4_hdot)
+
     L_step = u**2
     state_next=state_next = ca.vertcat(x_next, y_next, h_next, h_dot_next)
     return state_next, L_step
@@ -59,41 +60,37 @@ def multiple_rk4_steps(state, h_ddot,dt):
 def simulate(state_init, T, dt):
     states = []
     state_k = state_init
-
+    states.append(np.array(dt).flatten()) 
     # első elem: csak state_init (4 elem)
     states.append(np.array(state_k).flatten())
 
-    # minden lépés: state_k + 0 + dt (6 elem)
-    
-    state_k, _ = rk4_step(state_k, 0, dt)
-    vec = ca.vertcat( 0, dt,state_k)
-    states.append(np.array(vec).flatten())
-
-    # végül egyetlen sorvektor
-    states_flat = np.concatenate(states)
-    return states_flat
+    for _ in range(int(T/dt)):
+        state_k, _ = rk4_step(state_k, 0, dt)
+        vec = ca.vertcat( state_k,0,)
+        states.append(np.array(vec).flatten())
+    states=np.concatenate(states)
+    return states
 
 yoyo_height = lambda theta, h: h - L + r0*theta + (alpha/2)*theta**2
 def disassemble(opt):
-    theta_opt = opt[0::6]
-    theta_dot_opt = opt[1::6]
-    h_opt = opt[2::6]
-    h_dot_opt = opt[3::6]
-    h_ddot_opt = opt[4::6]
-    dt_opt = opt[5::6]
+    dt_opt=opt[0]
+    theta_opt = opt[1::5]
+    theta_dot_opt = opt[2::5]
+    h_opt = opt[3::5]
+    h_dot_opt = opt[4::5]
+    h_ddot_opt = opt[5::5]
+    
     return [theta_opt,theta_dot_opt,h_opt,h_dot_opt,h_ddot_opt,dt_opt]
 def simualtion_verdict(state_init, T, dt_1,dt_2):
 
     states_1=simulate(state_init,T,dt_1)
     states_2=simulate(state_init,T,dt_2)
+   
     [theta_opt_1,theta_dot_opt_1,h_opt_1,h_dot_opt_1,h_ddot_opt_1,dt_opt_1]=disassemble(states_1)
     [theta_opt_2,theta_dot_opt_2,h_opt_2,h_dot_opt_2,h_ddot_opt_2,dt_opt_2]=disassemble(states_2)
-    tgrid_1 = [0.0]
-    for k in range(len(dt_opt_1)):
-        tgrid_1.append(tgrid_1[-1] + dt_opt_1[k])
-    tgrid_2 = [0.0]
-    for k in range(len(dt_opt_2)):
-        tgrid_2.append(tgrid_2[-1] + dt_opt_2[k])
+    tgrid_1 =np.linspace(0,T,int(T/dt_1)+1)
+    
+    tgrid_2 =np.linspace(0,T,int(T/dt_2)+1)
     plt.figure()
     plt.plot(tgrid_1, theta_opt_1, '-', label="theta with dt_1={}".format(dt_1))
     plt.plot(tgrid_2, theta_opt_2, '-', label="theta with dt_2={}".format(dt_2))
@@ -107,10 +104,8 @@ def simualtion_verdict(state_init, T, dt_1,dt_2):
 
 def visualize_results(w_opt):
     [theta_opt,theta_dot_opt,h_opt,h_dot_opt,h_ddot_opt,dt_opt]=disassemble(w_opt)
+    tgrid =np.linspace(0,N*dt_opt,int((N/M)+1))
 
-    tgrid = [0.0]
-    for k in range(len(dt_opt)):
-        tgrid.append(tgrid[-1] + dt_opt[k])
     plt.figure()
     plt.plot(tgrid, theta_opt, '--', label="theta")
     plt.plot(tgrid, theta_dot_opt, '--', label="theta_dot")
@@ -139,15 +134,11 @@ def visualize_results(w_opt):
     plt.legend()
     plt.show()
 
-    plt.figure()
-    plt.plot(dt_opt, label="dt")
-    plt.grid()
-    plt.legend()
-    plt.show()
+
 def save_data(w_opt):
-    h_opt = w_opt[2::6]
-    h_dot_opt = w_opt[3::6]
-    h_ddot_opt = w_opt[4::6]
+    h_opt = w_opt[2::5]
+    h_dot_opt = w_opt[3::5]
+    h_ddot_opt = w_opt[4::5]
     csvdata=[]
     head = ["h_opt", "h_dot_opt", "h_ddot_opt"]
 
@@ -157,3 +148,19 @@ def save_data(w_opt):
         writer = csv.writer(file)
         writer.writerow(head)      
         writer.writerows(csvdata)  
+def interpolation(h_opt,h_dot_opt, h_ddot_opt,dt_opt,dt_update):
+    T=(len(h_opt)*dt_opt)
+    time=np.linspace(0,T,int(T/dt_opt))
+    print(time.shape,h_opt.shape,h_dot_opt.shape,h_ddot_opt.shape)
+    s_1=interp1d(time,h_opt,'cubic')
+    s_2=interp1d(time,h_dot_opt,'cubic')
+    time=np.linspace(0,T,int(T/dt_opt)-1)
+    s_3=interp1d(time,h_ddot_opt,'cubic')
+    time_sampe=np.linspace(0,T,int(T/dt_update))
+    h_opt_interp=s_1(time_sampe)
+    h_dot_opt_interp=s_2(time_sampe)
+    h_ddot_opt_interp=s_3(time_sampe)
+    return [h_opt_interp,h_dot_opt_interp,h_ddot_opt_interp]
+    
+
+
