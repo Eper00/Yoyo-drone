@@ -148,18 +148,20 @@ def save_data(w_opt):
         writer = csv.writer(file)
         writer.writerow(head)      
         writer.writerows(csvdata)  
-def interpolation(h_opt,h_dot_opt, h_ddot_opt,dt_opt,dt_update):
+def interpolation(h_opt,h_dot_opt, h_ddot_opt,dt_opt,dt_update,N,M):
     T=(len(h_opt)*dt_opt)
-    time=np.linspace(0,T,int(T/dt_opt))
-    print(time.shape,h_opt.shape,h_dot_opt.shape,h_ddot_opt.shape)
+
+    time=np.linspace(0,T,int(N/M)+1)
+    print(time.shape,h_opt.shape)
     s_1=interp1d(time,h_opt,'cubic')
     s_2=interp1d(time,h_dot_opt,'cubic')
-    time=np.linspace(0,T,int(T/dt_opt)-1)
+    time=np.linspace(0,T,int(N/M))
     s_3=interp1d(time,h_ddot_opt,'cubic')
     time_sampe=np.linspace(0,T,int(T/dt_update))
     h_opt_interp=s_1(time_sampe)
     h_dot_opt_interp=s_2(time_sampe)
     h_ddot_opt_interp=s_3(time_sampe)
+
     return [h_opt_interp,h_dot_opt_interp,h_ddot_opt_interp]
     
 

@@ -9,6 +9,7 @@ import numpy as np
 import csv
 import pandas as pd
 from aiml_virtual.simulated_object.dynamic_object.controlled_object.drone import bumblebee
+from multiprocessing import Process
 from scripts.my_code.MPC import control, parameters,support
 class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     """
@@ -21,8 +22,10 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     alpha = 0.0000165
     beta = 0.85
 
-    theta = 0
-    theta_dot = 100
+    theta = parameters.x0_val[0]
+    theta_dot = parameters.x0_val[1]
+    h_dot = parameters.x0_val[2]
+    h_ddot = parameters.x0_val[3]
     theta_ddot = 0
     d = 0
     r = 0
@@ -37,17 +40,28 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     h_opt=[]
     h_dot_opt=[]
     h_ddot_opt=[]
-    dt_opt=[]
-  
+    dt_opt=0
+
+    h_opt_interp=[]
+    h_dot_opt_interp=[]
+    h_ddot_opt_interp=[]
+
+
+
+    h_opt_interp_before=[]
+    h_dot_opt_interp_before=[]
+    h_ddot_opt_interp_before=[]
+
     dt = 0.001
     h = 1
-    h_dot = 0
-    h_ddot = 0
+   
     k=0
     index_write=0
     csvdata=[]
     time=0
-    time_threshold=0
+    max_computing_time=0.5
+
+
     index_control=0
     switch=1
     @classmethod
@@ -91,31 +105,28 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         self.sensors["yoyo_ang_vel"] = self.data.sensor(f"{self.name}_yoyo_ang_vel")
 
     def update(self) -> None:
-        
-
-        if(self.switch==1 and self.theta_dot>0):
-            x0_val=[self.theta,self.theta_dot,self.h,self.h_dot]
-            self.index_control=0
-            self.time=0
-            w_opt=control.controller(x0_val,parameters.x0_init,parameters.theta_dot_ref,parameters.N,parameters.M)
-            [_,_,self.h_opt,self.h_dot_opt,self.h_ddot_opt,self.dt_opt]=support.disassemble(w_opt)
-            parameters.x0_init=w_opt
-            self.time_threshold=self.dt_opt[0]
-        self.spin_propellers()
-        if self.time>self.time_threshold:
-            self.index_control=self.index_control+1
-            self.time_threshold=self.time_threshold+self.dt_opt[self.index_control-1]
-        self.time=self.time+self.dt
-
-        self.h=self.h_opt[self.index_control]
-        self.h_dot=self.h_dot_opt[self.index_control]
-        self.h_ddot=self.h_ddot_opt[self.index_control]
-        self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
-        #self.theta_past=self.theta
+        if((self.switch==1 and self.theta_dot>0) or self.index_control>=len(self.h_ddot_opt_interp)):
+            [self.h_opt_interp_before,self.h_dot_opt_interp_before,self.h_ddot_opt_interp_before]=[self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]
+            [self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]=self.compute_control()
         if (self.theta<0):
             self.switch=1
         else:
             self.switch=0
+
+        self.time=self.time+self.dt
+        if self.time<self.max_computing_time and (len(self.h_opt_interp_before)!=0 and len(self.h_dot_opt_interp_before)!=0  and len(self.h_ddot_opt_interp_before)!=0):
+            self.h=self.h_opt_interp_before[self.index_control]
+            self.h_dot=self.h_dot_opt_interp_before[self.index_control]
+            self.h_ddot=self.h_ddot_opt_interp_before[self.index_control]
+        else:
+            self.h=self.h_opt_interp[self.index_control]
+            self.h_dot=self.h_dot_opt_interp[self.index_control]
+            self.h_ddot=self.h_ddot_opt_interp[self.index_control]
+
+        self.index_control=self.index_control+1
+        
+
+       
         self.update_yoyo_state()       
         
         setpoint = {"load_mass": 0.0, # [m] - assume no load mass (rope tension will account for yoyo)
@@ -158,6 +169,7 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         self.index_write+=1
     def update_yoyo_state(self):
          # Yoyo dynamics
+        self.r_theta = YoyoBumblebee1DOF_MPC.r_0 + (self.theta * YoyoBumblebee1DOF_MPC.alpha)
         cur_pos = self.state['pos']
         cur_vel = self.state['vel']
         cur_acc = self.state['acc']
@@ -182,3 +194,13 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         self.z_ddot = (cur_acc[2] - 9.81) + (YoyoBumblebee1DOF_MPC.alpha * self.theta_dot * self.theta_dot) + (self.r_theta * self.theta_ddot)
 
         self.d = cur_pos[2] - self.z
+    def compute_control(self):
+        x0_val=[self.theta,self.theta_dot,self.h,self.h_dot]
+        self.index_control=0
+        self.time=0
+        w_opt=control.controller(x0_val,parameters.x0_init,parameters.theta_dot_ref,parameters.N,parameters.M)
+        [_,_,self.h_opt,self.h_dot_opt,self.h_ddot_opt,self.dt_opt]=support.disassemble(w_opt)
+            
+        parameters.x0_init=w_opt
+        [self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]=support.interpolation(self.h_opt,self.h_dot_opt,self.h_ddot_opt,self.dt_opt,0.001,parameters.N,parameters.M)
+        return [self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]
