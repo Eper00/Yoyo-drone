@@ -70,34 +70,38 @@ def controller(x0_val,x0_init,theta_dot_ref,N,M):
         g   += [state_k_end-state_k]
         lbg += [0, 0,0,0]
         ubg += [0, 0,0,0]
+
+        
+
+     
+    if k > int(N/M)*0.8:  
+        target = ca.DM([0.0, float(theta_dot_ref), 1.0, 1.0])
+        Q_terminal = ca.diag(ca.DM([1, 1, 100, 100]))
+        err = state_k_end - target
+
+        K_total = int(N/M)
+        tau = (k+1) / float(K_total)     # normált idő 0..1 között
+        alpha = 5.0                      # exponenciális erősség (hangolható)
+        weight = ca.exp(alpha * tau)     # exponenciális növekedés
+
+        J = J + weight * ca.mtimes([err.T, Q_terminal, err])
+
+
+
+
+        '''
+        Vajon az a jó hogy szigurúan előírjuk a drón sebességén kívűl az összes állapotot és hd_dotra írunk 
+        egy soft contrait: Szerintem annyira nem, ha theta,thetha_dot, és h adott (hard constraittel) akkor
+        h_dot-nak már kisebb halmazből kell kiekrülni, mennyire fontos hogy egy darab állaptot érjünk el?
+        Nem elég ha egy állapothalmazba érünk el?
+        Alábbiak lehetnek egy megoldás erre (nem 0 m/s ról indítjük a drónt)
+        Ugye félő a szimulációban hogy az előző iterációbeli adatokkal dolgozunk, hogy 
+        A másoidk iterációban beütjük a fejünket (mivel ott már picit magasabb mint 1 méterről van szó)
+        Az biztos hogy nem műkődik ha h fix constriant és h_ddot nem (valamiért a constraitek betartása mellet bár optimális megoldást kapunk de h_dot nem lesz nulla, közel sem)
+        Az a nagy baj, ha h==1 és h_dot=0 akkor kb azt írjuk elő hogy a drón egy ideig csak álljon egy helyben és úgy érjen le a jójó az ütközési pintra
+        '''
     
-        if k > int(N/M)*0.9:
-
-   
-            
-            target = ca.DM([0.0, float(theta_dot_ref), 1.0, 0.0])
-            Q_terminal = ca.diag(ca.DM([1, 5, 100, 100]))
-            err = state_k_end - target
-            tau = (k+1) / float( int(N/M))   # normált idő 0..1 között
-            alpha = 5.0                      # exponenciális erősség (hangolható)
-            weight = ca.exp(alpha * tau)     # exponenciális növekedés
-
-            J = J + weight * ca.mtimes([err.T, Q_terminal, err])
-
-
-
-
-
-
-
-
-
-    
-    
-                    
-
-
-
+       
 
 
     # Create an NLP solver
@@ -120,9 +124,8 @@ def control_loop(cyclenumber,x0_val,x0_init,theta_dot_ref,N,M):
         x0_val[1]=w_opt[-3]*-beta
         x0_val[2]=w_opt[-2]
         x0_val[3]=w_opt[-1]
-        visualize_results(w_opt)
         x0_init=w_opt
-
+        visualize_results(w_opt)
 
 
 

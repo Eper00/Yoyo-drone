@@ -44,7 +44,7 @@ def rk4_step(state, u,dt):
     h_next = h + (1/6)*(k1_h + 2*k2_h + 2*k3_h + k4_h)
     h_dot_next = h_dot + (1/6)*(k1_hdot + 2*k2_hdot + 2*k3_hdot + k4_hdot)
 
-    L_step = u**2
+    L_step = (u)**2
     state_next=state_next = ca.vertcat(x_next, y_next, h_next, h_dot_next)
     return state_next, L_step
 
@@ -103,36 +103,39 @@ def simualtion_verdict(state_init, T, dt_1,dt_2):
 
 
 def visualize_results(w_opt):
-    [theta_opt,theta_dot_opt,h_opt,h_dot_opt,h_ddot_opt,dt_opt]=disassemble(w_opt)
-    tgrid =np.linspace(0,N*dt_opt,int((N/M)+1))
+    [theta_opt, theta_dot_opt, h_opt, h_dot_opt, h_ddot_opt, dt_opt] = disassemble(w_opt)
+    tgrid = np.linspace(0, N * dt_opt, int((N / M) + 1))
 
-    plt.figure()
-    plt.plot(tgrid, theta_opt, '--', label="theta")
-    plt.plot(tgrid, theta_dot_opt, '--', label="theta_dot")
-    plt.grid()
-    plt.legend()
+    # 4 sor, 1 oszlop, közös x tengely
+    fig, axs = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+    fig.suptitle("Optimal Trajectories", fontsize=14)
+
+    # 1. subplot: theta és theta_dot
+    axs[0].plot(tgrid, theta_opt, '--', label="theta")
+    axs[0].plot(tgrid, theta_dot_opt, '--', label="theta_dot")
+    axs[0].grid()
+    axs[0].legend()
+
+    # 2. subplot: h és yoyo_height
+    axs[1].plot(tgrid, h_opt, '--', label="h")
+    axs[1].plot(tgrid, yoyo_height(theta_opt, h_opt), '--', label="yoyo_height")
+    axs[1].grid()
+    axs[1].legend()
+
+    # 3. subplot: h_dot
+    axs[2].plot(tgrid, h_dot_opt, '--', label="h_dot")
+    axs[2].grid()
+    axs[2].legend()
+
+    # 4. subplot: h_ddot (lépcsős)
+    axs[3].step(tgrid[:-1], h_ddot_opt, where="post", label="h_ddot")
+    axs[3].grid()
+    axs[3].legend()
+    axs[3].set_xlabel("Time [s]")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()
 
-    # h és a yoyo_height
-    plt.figure()
-    plt.plot(tgrid, h_opt, '--', label="h")
-    plt.plot(tgrid, yoyo_height(theta_opt, h_opt), '--', label="yoyo_height")
-    plt.grid()
-    plt.legend()
-    plt.show()
-
-    # h_dot
-    plt.figure()
-    plt.plot(tgrid, h_dot_opt, '--', label="h_dot")
-    plt.grid()
-    plt.legend()
-    plt.show()
-
-    plt.figure()
-    plt.step(tgrid[:-1], h_ddot_opt, where="post", label="h_ddot")
-    plt.grid()
-    plt.legend()
-    plt.show()
 
 
 def save_data(w_opt):
@@ -150,9 +153,7 @@ def save_data(w_opt):
         writer.writerows(csvdata)  
 def interpolation(h_opt,h_dot_opt, h_ddot_opt,dt_opt,dt_update,N,M):
     T=(len(h_opt)*dt_opt)
-
     time=np.linspace(0,T,int(N/M)+1)
-    print(time.shape,h_opt.shape)
     s_1=interp1d(time,h_opt,'cubic')
     s_2=interp1d(time,h_dot_opt,'cubic')
     time=np.linspace(0,T,int(N/M))

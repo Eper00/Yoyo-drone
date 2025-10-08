@@ -2,8 +2,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # CSV beolvasása
-df = pd.read_csv("data_mujoco_30.csv", header=0)
-# mintavételi idő (s)
+df = pd.read_csv("drone_state.csv", header=0)
+# mintavételi idő (s) (szimulációs idővel azonos?, az udapte a szimulációhóz?, miyen gyakran adjunk ki beavatkozó jelet stb)
 dt = 0.001
 time = df.index * dt   # idővektor
 

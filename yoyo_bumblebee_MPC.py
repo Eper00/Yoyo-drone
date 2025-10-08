@@ -9,61 +9,70 @@ import numpy as np
 import csv
 import pandas as pd
 from aiml_virtual.simulated_object.dynamic_object.controlled_object.drone import bumblebee
-from multiprocessing import Process
+from multiprocessing import Process,Queue
 from scripts.my_code.MPC import control, parameters,support
 class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
     """
     Class that extends the Bumblebee to have a 1-DOF yoyo on it.
     """
-    L = 0.6
-    m_yoyo = 0.045
-    r_0 = 0.005
-    J_yoyo = 0.00003
-    alpha = 0.0000165
-    beta = 0.85
 
-    theta = parameters.x0_val[0]
-    theta_dot = parameters.x0_val[1]
-    h_dot = parameters.x0_val[2]
-    h_ddot = parameters.x0_val[3]
-    theta_ddot = 0
-    d = 0
-    r = 0
+    L = parameters.L
+    m_yoyo = parameters.m
+    r_0 = parameters.r0
+    J_yoyo = parameters.J
+    alpha = parameters.alpha
+    beta = parameters.beta
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 
-    T = 0
-    z = 0
-    z_dot = 0
-    z_ddot = 0
-    T_imp = 0
-    h_opt=[]
-    h_dot_opt=[]
-    h_ddot_opt=[]
-    dt_opt=0
+        # --- kezdeti állapotértékek ---
+        self.theta = parameters.x0_val[0]
+        self.theta_dot = parameters.x0_val[1]
+        self.h = parameters.x0_val[2]
+        self.h_dot = parameters.x0_val[3]
+        self.h_ddot = 0
+        self.theta_ddot = 0
+        self.d = 0
+        self.r = 0
 
-    h_opt_interp=[]
-    h_dot_opt_interp=[]
-    h_ddot_opt_interp=[]
+        # --- kiegészítő állapotváltozók ---
+        self.T = 0
+        self.z = 0
+        self.z_dot = 0
+        self.z_ddot = 0
+        self.T_imp = 0
 
+        # --- MPC eredmények ---
+        self.h_opt = []
+        self.h_dot_opt = []
+        self.h_ddot_opt = []
+        self.dt_opt = 0.001
 
+        # --- interpolált pályák ---
+        self.h_opt_interp = []
+        self.h_dot_opt_interp = []
+        self.h_ddot_opt_interp = []
 
-    h_opt_interp_before=[]
-    h_dot_opt_interp_before=[]
-    h_ddot_opt_interp_before=[]
+        # --- korábbi MPC eredmények ---
+        self.h_opt_interp_before = []
+        self.h_dot_opt_interp_before = []
+        self.h_ddot_opt_interp_before = []
 
-    dt = 0.001
-    h = 1
-   
-    k=0
-    index_write=0
-    csvdata=[]
-    time=0
-    max_computing_time=0.5
+        # --- időzítés és vezérlés ---
+        self.dt = 0.001
+        self.k = 0
+        self.index_write = 0
+        self.csvdata = []
+        self.time = 0
+        self.max_computing_time = parameters.max_computing_time
+        self.index_control = 0
+        self.switch = 0
 
-
-    index_control=0
-    switch=1
+        # --- párhuzamosítás ---
+        self.process = None
+        self.queue = None
     @classmethod
     def get_identifiers(cls) -> Optional[list[str]]:
         return ["YoyoBumblebee1DOF_PD"]
@@ -105,27 +114,30 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         self.sensors["yoyo_ang_vel"] = self.data.sensor(f"{self.name}_yoyo_ang_vel")
 
     def update(self) -> None:
-        if((self.switch==1 and self.theta_dot>0) or self.index_control>=len(self.h_ddot_opt_interp)):
-            [self.h_opt_interp_before,self.h_dot_opt_interp_before,self.h_ddot_opt_interp_before]=[self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]
-            [self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]=self.compute_control()
-        if (self.theta<0):
-            self.switch=1
-        else:
-            self.switch=0
+        
+        if (self.switch==1 or len(self.h_opt_interp)==0):
+            self.update_control()
+       
 
-        self.time=self.time+self.dt
-        if self.time<self.max_computing_time and (len(self.h_opt_interp_before)!=0 and len(self.h_dot_opt_interp_before)!=0  and len(self.h_ddot_opt_interp_before)!=0):
-            self.h=self.h_opt_interp_before[self.index_control]
-            self.h_dot=self.h_dot_opt_interp_before[self.index_control]
-            self.h_ddot=self.h_ddot_opt_interp_before[self.index_control]
+        if self.time < self.max_computing_time and (len(self.h_opt_interp_before)!=0):
+            self.h = self.h_opt_interp_before[self.index_control]
+            self.h_dot = self.h_dot_opt_interp_before[self.index_control]
+            self.h_ddot = self.h_ddot_opt_interp_before[self.index_control]
         else:
-            self.h=self.h_opt_interp[self.index_control]
-            self.h_dot=self.h_dot_opt_interp[self.index_control]
-            self.h_ddot=self.h_ddot_opt_interp[self.index_control]
+            self.h = self.h_opt_interp[self.index_control]
+            self.h_dot = self.h_dot_opt_interp[self.index_control]
+            self.h_ddot = self.h_ddot_opt_interp[self.index_control]
+
 
         self.index_control=self.index_control+1
-        
-
+        self.time=self.time+self.dt
+       
+        if (self.theta<0 and self.switch==0):
+            self.switch=1
+            self.index_control=0
+            self.time=0
+        else:
+            self.switch=0
        
         self.update_yoyo_state()       
         
@@ -194,13 +206,22 @@ class YoyoBumblebee1DOF_MPC(bumblebee.Bumblebee):
         self.z_ddot = (cur_acc[2] - 9.81) + (YoyoBumblebee1DOF_MPC.alpha * self.theta_dot * self.theta_dot) + (self.r_theta * self.theta_ddot)
 
         self.d = cur_pos[2] - self.z
-    def compute_control(self):
+    def update_control(self):
         x0_val=[self.theta,self.theta_dot,self.h,self.h_dot]
-        self.index_control=0
-        self.time=0
+        self.h_opt_interp_before = list(self.h_opt_interp)
+        self.h_dot_opt_interp_before = list(self.h_dot_opt_interp)
+        self.h_ddot_opt_interp_before = list(self.h_ddot_opt_interp)
         w_opt=control.controller(x0_val,parameters.x0_init,parameters.theta_dot_ref,parameters.N,parameters.M)
-        [_,_,self.h_opt,self.h_dot_opt,self.h_ddot_opt,self.dt_opt]=support.disassemble(w_opt)
-            
+        [_,_,self.h_opt,self.h_dot_opt,self.h_ddot_opt,self.dt_opt]=support.disassemble(w_opt)    
         parameters.x0_init=w_opt
+        
         [self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]=support.interpolation(self.h_opt,self.h_dot_opt,self.h_ddot_opt,self.dt_opt,0.001,parameters.N,parameters.M)
-        return [self.h_opt_interp,self.h_dot_opt_interp,self.h_ddot_opt_interp]
+       
+    def _compute_in_subprocess(self, q: Queue):
+        self.compute_control()
+
+        q.put((
+        self.h_opt_interp,
+        self.h_dot_opt_interp,
+        self.h_ddot_opt_interp
+        ))
