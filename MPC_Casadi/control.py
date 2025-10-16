@@ -1,116 +1,120 @@
 import casadi as ca
-import numpy as np
-from utils.support import *
-def controller(x0_val,x0_init,theta_dot_ref,N,M):
-
-   
-    w=[]
-    lbw = []
-    ubw = []
-    J = 0
-   
-    dt = ca.MX.sym("dt")
-    w   += [dt]
-    lbw += [dt_min]   # paraméterekből
-    ubw += [dt_max]
-    theta = ca.MX.sym("theta")          # szög
-    theta_dot = ca.MX.sym("theta_dot")  # szögsebesség
-    h = ca.MX.sym("h")                  # magasság
-    h_dot = ca.MX.sym("h_dot")          # magasságsebesség
-    h_ddot = ca.MX.sym("h_ddot")        # döntési változók: u_k
-    state = ca.vertcat(theta, theta_dot, h, h_dot)
-    
-    state_next, L_step = multiple_rk4_steps(state, h_ddot, dt)
-
-    F = ca.Function("F", 
-                    [state, h_ddot, dt],       # bemenetek
-                    [state_next, L_step],      # kimenetek
-                    ['state','h_ddot','dt'],   # bemenetnevek
-                    ['state_next','L_step'])   # kimenetnevek
-    g = ca.Function("g", [state[0],state[2]], [yoyo_height(state[0],state[2])])
-   
-    g=[]
-    lbg = []
-    ubg = []
-    # "Lift" initial conditions
-    state_k = ca.MX.sym('X0', 4)
-    w += [state_k]
-
-    lbw += [x0_val[0], x0_val[1],x0_val[2],x0_val[3]]
-    ubw += [x0_val[0], x0_val[1],x0_val[2],x0_val[3]]
-
-
-
-    # Formulate the NLP
-    for k in range(int(N/M)):
-        # New NLP variable for the control
-        h_ddot_k = ca.MX.sym('h_ddot_' + str(k))
-        w   += [h_ddot_k]
-        lbw += [U_min]
-        ubw += [U_max]
+from utils.support import visualize_results_casadi
+class Controller:
+    def __init__(self, x0_val, x0_init, N, M, params,dynamic_function):
+        """
+        Controller osztály inicializálása.
+        """
+        self.x0_val = x0_val
+        self.x0_init = x0_init
+        self.N = N
+        self.M = M
         
-       
-        # Integrate till the end of the interval
-        Fk = F(state_k, h_ddot_k,dt)
-        state_k_end = Fk[0]
-        J=J+Fk[1]
-        
-        # New NLP variable for state at end of interval
-        state_k = ca.MX.sym('state_' + str(k+1), 4)
-        w   += [state_k]
-        lbw += [0, -1*ca.inf,h_min,-1*ca.inf]
-        ubw += [105,ca.inf,h_max,ca.inf]
-        # Add equality constraint
-        g   += [state_k_end-state_k]
-        lbg += [0, 0,0,0]
-        ubg += [0, 0,0,0]
+        # Külső paraméterek (pl. határok, célállapot, stb.)
+        self.dt_min = params["dt_min"]
+        self.dt_max = params["dt_max"]
+        self.U_min = params["U_min"]
+        self.U_max = params["U_max"]
+        self.h_min = params["h_min"]
+        self.h_max = params["h_max"]
+        self.x_target = params["x_target"]
+        self.beta = params["beta"]
+        self.multiple_rk4_steps=dynamic_function
 
 
-        
+    def build_nlp(self):
 
+        w = []
+        lbw = []
+        ubw = []
+        J = 0
+
+        # Diszkrét lépésidő döntési változó
+        dt = ca.MX.sym("dt")
+        w += [dt]
+        lbw += [self.dt_min]
+        ubw += [self.dt_max]
+
+        # Állapotváltozók
+        theta = ca.MX.sym("theta")
+        theta_dot = ca.MX.sym("theta_dot")
+        h = ca.MX.sym("h")
+        h_dot = ca.MX.sym("h_dot")
+        h_ddot = ca.MX.sym("h_ddot")  # vezérlés
+
+        state = ca.vertcat(theta, theta_dot, h, h_dot)
+        state_next, L_step = self.multiple_rk4_steps(state, h_ddot, dt)
+
+        F = ca.Function("F", 
+                        [state, h_ddot, dt],
+                        [state_next, L_step],
+                        ['state', 'h_ddot', 'dt'],
+                        ['state_next', 'L_step'])
+
+        g = []
+        lbg = []
+        ubg = []
+
+        # Kezdeti állapot
+        state_k = ca.MX.sym('X0', 4)
+        w += [state_k]
+        lbw += list(self.x0_val[0:-1])
+        ubw += list(self.x0_val[0:-1])
+
+        # Fő ciklus
+        for k in range(int(self.N / self.M)):
+            h_ddot_k = ca.MX.sym(f'h_ddot_{k}')
+            w += [h_ddot_k]
+            lbw += [self.U_min]
+            ubw += [self.U_max]
+
+            Fk = F(state_k, h_ddot_k, dt)
+            state_k_end = Fk[0]
+            J += Fk[1]
+
+            # Új állapot
+            state_k = ca.MX.sym(f'state_{k+1}', 4)
+            w += [state_k]
+            lbw += [0, -ca.inf, self.h_min, -ca.inf]
+            ubw += [105, ca.inf, self.h_max, ca.inf]
+
+            # Dinamikai egyenlet constraint
+            g += [state_k_end - state_k]
+            lbg += [0, 0, 0, 0]
+            ubg += [0, 0, 0, 0]
+
+            # Terminális költség utolsó lépésben
+            if k == int(self.N / self.M) - 1:
+                Q_terminal = ca.diag(ca.DM([1, 10, 1000, 100]))    
+                err = state_k_end - self.x_target
+
+                J = J + 150*ca.mtimes([err.T, Q_terminal, err])
+
+        prob = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
+        return prob, w, lbw, ubw, lbg, ubg
+
+    def solve(self):
+
+        prob, w, lbw, ubw, lbg, ubg = self.build_nlp()
+        solver = ca.nlpsol('solver', 'ipopt', prob)
+        sol = solver(x0=self.x0_init, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
+        w_opt = sol['x'].full().flatten()
         
-    if k == int(N/M)-1:  
       
-        Q_terminal = ca.diag(ca.DM([1, 1, 100, 100]))
-        err = state_k_end - x_target
-        K_total = int(N/M)
-        tau = (k+1) / float(K_total)     # normált idő 0..1 között
-        alpha = 5.0                      # exponenciális erősség (hangolható)
-        weight = ca.exp(alpha * tau)     # exponenciális növekedés
+        return w_opt
 
-        J = J + weight * ca.mtimes([err.T, Q_terminal, err])
+    def control_loop(self, cyclenumber):
 
-
-
-    # Create an NLP solver
-    prob = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
-    solver = ca.nlpsol('solver', 'ipopt', prob)
-
-    # Solve the NLP
-    sol = solver(x0=x0_init, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
-    w_opt = sol['x'].full().flatten()
-
-    # Plot the solution
-     
-    return w_opt
+        for _ in range(cyclenumber):
+            print(self.x0_val)
+            w_opt = self.solve()
+            self.x0_val[0] = w_opt[-4]
+            self.x0_val[1] = w_opt[-3] * -self.beta
+            self.x0_val[2] = w_opt[-2]
+            self.x0_val[3] = w_opt[-1]
+            self.x0_val[4] = w_opt[0]
+            self.x0_init = w_opt
+            # Eredmények kirajzolása
+            visualize_results_casadi(w_opt)
 
 
-def control_loop(cyclenumber,x0_val,x0_init,theta_dot_ref,N,M):
-    for _ in range(cyclenumber): 
-        w_opt=controller(x0_val,x0_init,theta_dot_ref,N,M)
-        x0_val[0]=w_opt[-4]
-        x0_val[1]=w_opt[-3]*-beta
-        x0_val[2]=w_opt[-2]
-        x0_val[3]=w_opt[-1]
-        x0_init=w_opt
-        visualize_results(w_opt)
-
-
-
-
-
-
-
-    
-
-    

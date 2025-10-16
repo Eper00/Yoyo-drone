@@ -1,6 +1,7 @@
 import casadi as ca
-from acados_template import AcadosModel,AcadosOcp
-from utils.parameters import m, r0, alpha, J, g, U_min, U_max ,x0_val ,h_min,h_max,x_target
+from acados_template import AcadosModel,AcadosOcp,AcadosOcpSolver
+from utils.parameters import *
+from utils.support import get_x_u_traj,visualize_results_acados
 import numpy as np
 
 
@@ -43,7 +44,7 @@ def create_model():
     model.u = ca.vertcat(u,dt)
     return model
 
-def formulate_ocp(Tf, N):
+def formulate_ocp():
     ocp = AcadosOcp()
     model = create_model()
     ocp.model = model
@@ -51,10 +52,10 @@ def formulate_ocp(Tf, N):
     nu = model.u.rows()
     # horizon
     ocp.solver_options.N_horizon = N
-    ocp.solver_options.tf = Tf
+    ocp.solver_options.tf = 1
 
     Q_mat = np.diag([1, 1, 100, 100])   # terminal
-    R_mat = np.diag([1,100])                 # running (u^2)
+    R_mat = np.diag([1,400])                 # running (u^2)
 
     # --- PATH COST: LINEAR_LS formában: y = Vx * x + Vu * u ---
     ocp.cost.cost_type = 'LINEAR_LS'
@@ -77,8 +78,7 @@ def formulate_ocp(Tf, N):
     ocp.constraints.ubu = np.array([U_max,3])
     ocp.constraints.idxbu = np.array([0,1])
 
-    ocp.constraints.x0 = x0_val[0:4]    
-
+    ocp.constraints.x0 = x0_val[0:-1] 
     ocp.constraints.Jbx = np.array([
         [1, 0, 0, 0,0],  
         [0, 0, 1, 0,0],
@@ -95,3 +95,32 @@ def formulate_ocp(Tf, N):
     ocp.solver_options.globalization = 'MERIT_BACKTRACKING'
 
     return ocp
+def control_loop_acados(cycle_times,x0_val):
+    x0 = x0_val[0:-1]
+
+    # egyszer hozzuk létre az OCP-t és a solvert
+    ocp = formulate_ocp()
+    ocp_solver = AcadosOcpSolver(ocp, verbose=False)
+
+    for _ in range(cycle_times):
+        # frissítsd az aktuális kezdőállapotot
+        ocp_solver.set(0, "lbx", x0)
+        ocp_solver.set(0, "ubx", x0)
+
+        # futtasd a solvert
+        status = ocp_solver.solve()
+        if status != 0:
+            raise Exception(f'acados returned status {status}.')
+
+        simX, simU = get_x_u_traj(ocp_solver, N)
+
+        x0_val = np.array([simX[-1,0], simX[-1,1]*-beta, simX[-1,2], simX[-1,3]])
+
+        # vizualizáció
+        visualize_results_acados(simX, simU, N+1, 1)
+        print(simU[-1,-1])
+
+
+
+
+
